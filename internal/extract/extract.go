@@ -24,6 +24,9 @@ func ExtractCompanyInfo(cik string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Set the User-Agent header to identify the client
+	req.Header.Set("User-Agent", "BrookMaoDev/ETLPipeline (bmao2088@gmail.com)")
+
 	// Use an HTTP client to execute the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
