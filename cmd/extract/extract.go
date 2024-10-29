@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 
 	"github.com/BrookMaoDev/ETLPipeline/internal/extract"
@@ -77,7 +78,15 @@ func CompanyInfoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Start the HTTP server on port 8080
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Default to 8080 if PORT isn't set
+	}
+
 	http.HandleFunc("/", CompanyInfoHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	log.Printf("Starting server on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
