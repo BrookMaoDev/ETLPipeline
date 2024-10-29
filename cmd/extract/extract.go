@@ -1,10 +1,11 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
-	"os"
+	"net/http"
 	"regexp"
 
 	"github.com/BrookMaoDev/ETLPipeline/internal/extract"
@@ -17,31 +18,66 @@ func validateCIK(cik string) bool {
 	return match
 }
 
-func main() {
-	// Define the CIK flag
-	cik := flag.String("cik", "", "CIK of the company (must be 10 digits)")
-	flag.Parse()
+// RequestPayload defines the expected structure of the request body.
+type RequestPayload struct {
+	CIK string `json:"cik"`
+}
 
-	// Check if CIK is provided and valid
-	if *cik == "" || !validateCIK(*cik) {
-		fmt.Println("Error: Please provide a valid 10-digit CIK using -cik=<CIK>.")
-		os.Exit(1)
+// CompanyInfoHandler handles POST requests to extract and upload company info.
+func CompanyInfoHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the JSON body
+	var payload RequestPayload
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// Validate CIK
+	if !validateCIK(payload.CIK) {
+		http.Error(w, "Invalid CIK: must be a 10-digit number", http.StatusBadRequest)
+		return
 	}
 
 	// Extract company information
-	info, err := extract.ExtractCompanyInfo(*cik)
+	info, err := extract.ExtractCompanyInfo(payload.CIK)
 	if err != nil {
-		log.Fatalf("Failed to extract company info: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to extract company info: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	// Define the storage bucket and file path
 	bucketName := "edgar_sec"
-	filePath := fmt.Sprintf("%s-info.json", *cik)
+	filePath := fmt.Sprintf("%s-info.json", payload.CIK)
 
 	// Upload the extracted information to Google Cloud Storage
 	if err := storage.UploadBytes(info, bucketName, filePath); err != nil {
-		log.Fatalf("Failed to upload company info: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to upload company info: %v", err), http.StatusInternalServerError)
+		return
 	}
 
-	log.Printf("Successfully uploaded company info for CIK %s", *cik)
+	// Respond with a success message
+	response := map[string]string{
+		"message": fmt.Sprintf("Successfully uploaded company info for CIK %s", payload.CIK),
+		"file":    filePath,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func main() {
+	// Start the HTTP server on port 8080
+	http.HandleFunc("/", CompanyInfoHandler)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
