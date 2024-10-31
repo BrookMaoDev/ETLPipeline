@@ -38,9 +38,5 @@ func UploadBytes(data []byte, bucket string, path string) error {
 	}
 
 	// Close the writer and check for any errors.
-	if err := writer.Close(); err != nil {
-		return err
-	}
-
-	return nil
+	return writer.Close()
 }

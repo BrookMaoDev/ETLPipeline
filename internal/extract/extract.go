@@ -3,33 +3,32 @@ package extract
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+
+	"github.com/joho/godotenv"
 )
 
-// ExtractCompanyInfo retrieves JSON-formatted company information from the SEC database
-// using the company's Central Index Key (CIK).
-//
-// Parameters:
-// - cik: A string representing the company's CIK (must be padded to 10 digits).
-//
-// Returns:
-// - A byte slice containing the JSON data from the SEC API, or an error if the request fails.
-func ExtractCompanyInfo(cik string) ([]byte, error) {
-	// Construct the API URL using the provided CIK
-	url := fmt.Sprintf("https://data.sec.gov/api/xbrl/companyfacts/CIK%s.json", cik)
-
-	// Create a new HTTP request
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+// ExtractWeatherData retrieves JSON-formatted weather data from the NASA InSight API.
+// Returns a byte slice containing the JSON data from the NASA API, or an error if the request fails.
+func ExtractWeatherData() ([]byte, error) {
+	// Load .env file if it exists
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: .env file not found, defaulting to environment variables")
 	}
 
-	// Set the User-Agent header to identify the client
-	req.Header.Set("User-Agent", "BrookMaoDev/ETLPipeline (bmao2088@gmail.com)")
+	// Get NASA API key from environment variable, defaulting to "DEMO_KEY" if not set
+	apiKey := os.Getenv("NASA_API_KEY")
+	if apiKey == "" {
+		apiKey = "DEMO_KEY"
+	}
 
-	// Use an HTTP client to execute the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// Construct the API URL
+	url := fmt.Sprintf("https://api.nasa.gov/insight_weather/?api_key=%s&feedtype=json&ver=1.0", apiKey)
+
+	// Create a new HTTP client and request
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
