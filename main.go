@@ -8,25 +8,41 @@ import (
 	"os"
 
 	"github.com/BrookMaoDev/ETLPipeline/internal/extract"
+	"github.com/BrookMaoDev/ETLPipeline/internal/load"
 	"github.com/BrookMaoDev/ETLPipeline/internal/storage"
+	"github.com/BrookMaoDev/ETLPipeline/internal/transform"
 	"github.com/joho/godotenv"
 )
 
-// WeatherDataHandler handles POST requests to extract and upload weather data.
+// WeatherDataHandler handles POST requests to extract, transform, and upload weather data.
 func WeatherDataHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { // Only allow POST requests
+	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Extract weather data
+	// Step 1: Extract raw weather data from the NASA API
 	data, err := extract.ExtractWeatherData()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to extract weather data: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Define the storage bucket and file path using environment variables
+	// Step 2: Transform the raw JSON data into the desired WeatherData structure
+	weatherData, err := transform.TransformWeatherData(data)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to transform weather data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 3: Convert the transformed WeatherData slice into NDJSON bytes for storage
+	transformedNDJSON, err := transform.ConvertToNDJSON(weatherData)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to convert transformed data to NDJSON: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 4: Define the storage bucket and file path using environment variables
 	bucketName := os.Getenv("GCS_BUCKET")
 	filePath := os.Getenv("GCS_FILE_PATH")
 	if bucketName == "" || filePath == "" {
@@ -34,15 +50,24 @@ func WeatherDataHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upload the extracted weather data to Google Cloud Storage
-	if err := storage.UploadBytes(data, bucketName, filePath); err != nil {
+	// Step 5: Upload the transformed JSON data to Google Cloud Storage
+	if err := storage.UploadBytes(transformedNDJSON, bucketName, filePath); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to upload weather data: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Respond with a success message
+	// Step 6: Load the data into BigQuery
+	projectID := os.Getenv("BQ_PROJECT_ID")
+	datasetID := os.Getenv("BQ_DATASET_ID")
+	tableID := os.Getenv("BQ_TABLE_ID")
+	if err := load.LoadDataFromGCS(projectID, datasetID, tableID, bucketName, filePath); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load data into BigQuery: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 7: Respond with a success message
 	response := map[string]string{
-		"message": "Successfully uploaded weather data",
+		"message": "Successfully uploaded and loaded transformed weather data into BigQuery",
 		"file":    filePath,
 	}
 	w.Header().Set("Content-Type", "application/json")
